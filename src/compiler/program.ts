@@ -769,9 +769,7 @@ namespace ts {
         if (!program) return false;
         // If any compiler options change, we can't reuse old source file even if version match
         // The change in options like these could result in change in syntax tree or `sourceFile.bindDiagnostics`.
-        const oldOptions = program.getCompilerOptions();
-        return !!sourceFileAffectingCompilerOptions.some(option =>
-            !isJsonEqual(getCompilerOptionValue(oldOptions, option), getCompilerOptionValue(newOptions, option)));
+        return optionsHaveChanges(program.getCompilerOptions(), newOptions, sourceFileAffectingCompilerOptions);
     }
 
     function createCreateProgramOptions(rootNames: readonly string[], options: CompilerOptions, host?: CompilerHost, oldProgram?: Program, configFileParsingDiagnostics?: readonly Diagnostic[]): CreateProgramOptions {
@@ -1548,7 +1546,7 @@ namespace ts {
 
                     if (!arrayIsEqualTo(oldSourceFile.libReferenceDirectives, newSourceFile.libReferenceDirectives, fileReferenceIsEqualTo)) {
                         // 'lib' references has changed. Matches behavior in changesAffectModuleResolution
-                        return StructureIsReused.Not;
+                        structureIsReused = StructureIsReused.SafeModules;
                     }
 
                     if (oldSourceFile.hasNoDefaultLib !== newSourceFile.hasNoDefaultLib) {
@@ -1644,7 +1642,7 @@ namespace ts {
                 return structureIsReused;
             }
 
-            if (host.hasChangedAutomaticTypeDirectiveNames?.()) {
+            if (changesAffectingProgramStructure(oldOptions, options) || host.hasChangedAutomaticTypeDirectiveNames?.()) {
                 return StructureIsReused.SafeModules;
             }
 
