@@ -3949,7 +3949,7 @@ namespace ts {
         /* @internal */ getLibFileFromReference(ref: FileReference): SourceFile | undefined;
 
         /** Given a source file, get the name of the package it was imported from. */
-        /* @internal */ sourceFileToPackageName: ESMap<string, string>;
+        /* @internal */ sourceFileToPackageName: ESMap<Path, string>;
         /** Set of all source files that some other source file redirects to. */
         /* @internal */ redirectTargetsMap: MultiMap<Path, string>;
         /** Is the file emitted file */
@@ -4044,7 +4044,7 @@ namespace ts {
         getFileProcessingDiagnostics(): FilePreprocessingDiagnostics[] | undefined;
 
         redirectTargetsMap: MultiMap<Path, string>;
-        sourceFileToPackageName: ESMap<string, string>;
+        sourceFileToPackageName: ESMap<Path, string>;
         structureIsReused?: StructureIsReused;
     }
 
