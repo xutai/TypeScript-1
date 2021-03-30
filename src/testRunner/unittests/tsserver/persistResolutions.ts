@@ -205,6 +205,12 @@ namespace ts.projectSystem {
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
 
+            logs.push("Delete file that could not be resolved");
+            host.deleteFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`);
+            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
+            host.runQueuedTimeoutCallbacks(); // Actual Update
+            appendProjectFileText(project, logs);
+
             baselineTsserverLogs("persistResolutions", "uses saved resolution for program", logs);
         });
 
@@ -303,6 +309,12 @@ namespace ts.projectSystem {
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
 
+            logs.push("Delete file that could not be resolved");
+            host.deleteFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`);
+            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
+            host.runQueuedTimeoutCallbacks(); // Actual Update
+            appendProjectFileText(project, logs);
+
             baselineTsserverLogs("persistResolutions", "creates new resolutions for program if tsbuildinfo is not present", logs);
         });
 
@@ -397,6 +409,12 @@ namespace ts.projectSystem {
 
             logs.push("Write file that could not be resolved");
             host.writeFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`, "export function something2() { return 20; }");
+            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
+            host.runQueuedTimeoutCallbacks(); // Actual Update
+            appendProjectFileText(project, logs);
+
+            logs.push("Delete file that could not be resolved");
+            host.deleteFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`);
             host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
