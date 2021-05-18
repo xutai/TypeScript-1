@@ -1,74 +1,9 @@
 namespace ts.projectSystem {
     describe("unittests:: tsserver:: persistResolutions", () => {
         function setupHost() {
-            const main: File = {
-                path: `${tscWatch.projectRoot}/src/main.ts`,
-                content: Utils.dedent`
-                    import { something } from "./filePresent";
-                    import { something as something1 } from "./filePresent";
-                    import { something2 } from "./fileNotFound";
-                    import { externalThing1 } from "externalThing";
-                    import { externalThing2 } from "externalThingNotPresent";`,
-            };
-            const anotherFileReusingResolution: File = {
-                path: `${tscWatch.projectRoot}/src/anotherFileReusingResolution.ts`,
-                content: Utils.dedent`
-                    import { something } from "./filePresent";
-                    import { something2 } from "./fileNotFound";
-                    import { externalThing1 } from "externalThing";
-                    import { externalThing2 } from "externalThingNotPresent";`,
-            };
-            const filePresent: File = {
-                path: `${tscWatch.projectRoot}/src/filePresent.ts`,
-                content: `export function something() { return 10; }`,
-            };
-            const fileWithRef: File = {
-                path: `${tscWatch.projectRoot}/src/fileWithRef.ts`,
-                content: `/// <reference path="./types.ts"/>`,
-            };
-            const types: File = {
-                path: `${tscWatch.projectRoot}/src/types.ts`,
-                content: `interface SomeType {}`,
-            };
-            const globalMain: File = {
-                path: `${tscWatch.projectRoot}/src/globalMain.ts`,
-                content: Utils.dedent`
-                    /// <reference path="./globalFilePresent.ts"/>
-                    /// <reference path="./globalFileNotFound.ts"/>
-                    function globalMain() { }
-                `,
-            };
-            const globalAnotherFileWithSameReferenes: File = {
-                path: `${tscWatch.projectRoot}/src/globalAnotherFileWithSameReferenes.ts`,
-                content: Utils.dedent`
-                        /// <reference path="./globalFilePresent.ts"/>
-                        /// <reference path="./globalFileNotFound.ts"/>
-                        function globalAnotherFileWithSameReferenes() { }
-                    `,
-            };
-            const globalFilePresent: File = {
-                path: `${tscWatch.projectRoot}/src/globalFilePresent.ts`,
-                content: `function globalSomething() { return 10; }`,
-            };
-            const externalThing: File = {
-                path: `${tscWatch.projectRoot}/src/externalThing.d.ts`,
-                content: `export function externalThing1(): number;`,
-            };
-            const config: File = {
-                path: `${tscWatch.projectRoot}/tsconfig.json`,
-                content: JSON.stringify({
-                    compilerOptions: {
-                        module: "amd",
-                        composite: true,
-                        persistResolutions: true,
-                        traceResolution: true,
-                        outFile
-                    },
-                    include: ["src/**/*.ts"]
-                }),
-            };
+            const { main, anotherFileReusingResolution, filePresent, fileWithRef, types, globalMain, globalAnotherFileWithSameReferenes, globalFilePresent, externalThing, someType, config } = tscWatch.PersistentResolutionsTests.getFiles();
             const host = createServerHost(
-                [main, anotherFileReusingResolution, filePresent, fileWithRef, types, globalMain, globalAnotherFileWithSameReferenes, globalFilePresent, externalThing, config, libFile],
+                [main, anotherFileReusingResolution, filePresent, fileWithRef, types, globalMain, globalAnotherFileWithSameReferenes, globalFilePresent, externalThing, someType, config, libFile],
                 { currentDirectory: tscWatch.projectRoot, useCaseSensitiveFileNames: true }
             );
             return { host, main, globalMain, config };
@@ -117,12 +52,7 @@ namespace ts.projectSystem {
             logs.push("");
         }
 
-        it("uses saved resolution for program", () => {
-            const result = setupHostWithSavedResolutions();
-            const { project, session, logs } = setup(result);
-            const { host, main, globalMain } = result;
-            appendProjectFileText(project, logs);
-
+        function modifyGlobalMain(session: TestSession, project: server.ConfiguredProject, logs: string[], globalMain: File) {
             logs.push(`Modify global file::`);
             session.executeCommandSeq<protocol.ChangeRequest>({
                 command: protocol.CommandTypes.Change,
@@ -138,7 +68,9 @@ namespace ts.projectSystem {
             });
             project.updateGraph();
             appendProjectFileText(project, logs);
+        }
 
+        function addNewGlobalFile(host: TestServerHost, session: TestSession, project: server.ConfiguredProject, logs: string[], globalMain: File) {
             logs.push(`Add new globalFile and update globalMain file::`);
             host.writeFile(`${tscWatch.projectRoot}/src/globalNewFile.ts`, "function globalFoo() { return 20; }");
             session.executeCommandSeq<protocol.ChangeRequest>({
@@ -167,12 +99,16 @@ namespace ts.projectSystem {
             });
             host.runQueuedTimeoutCallbacks();
             appendProjectFileText(project, logs);
+        }
 
+        function writeFileNotResolvedByReferencedPath(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
             logs.push("Write file that could not be resolved by referenced path::");
             host.writeFile(`${tscWatch.projectRoot}/src/globalFileNotFound.ts`, "function globalSomething2() { return 20; }");
-                host.runQueuedTimeoutCallbacks();
+            host.runQueuedTimeoutCallbacks();
             appendProjectFileText(project, logs);
+        }
 
+        function modifyMain(session: TestSession, project: server.ConfiguredProject, logs: string[], main: File) {
             logs.push(`Modify main file::`);
             session.executeCommandSeq<protocol.ChangeRequest>({
                 command: protocol.CommandTypes.Change,
@@ -188,7 +124,9 @@ namespace ts.projectSystem {
             });
             project.updateGraph();
             appendProjectFileText(project, logs);
+        }
 
+        function addNewFile(host: TestServerHost, session: TestSession, project: server.ConfiguredProject, logs: string[], main: File) {
             logs.push(`Add new module and update main file::`);
             host.writeFile(`${tscWatch.projectRoot}/src/newFile.ts`, "export function foo() { return 20; }");
             session.executeCommandSeq<protocol.ChangeRequest>({
@@ -205,30 +143,83 @@ namespace ts.projectSystem {
             });
             host.runQueuedTimeoutCallbacks();
             appendProjectFileText(project, logs);
+        }
 
+        function writeFileNotResolved(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
             logs.push("Write file that could not be resolved");
             host.writeFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`, "export function something2() { return 20; }");
             host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
+        }
 
+        function deleteFileNotResolved(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
             logs.push("Delete file that could not be resolved");
             host.deleteFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`);
             host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
+        }
 
+        function writeExternalModuleNotResolved(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
             logs.push("Create external module file that could not be resolved");
             host.writeFile(`${tscWatch.projectRoot}/src/externalThingNotPresent.ts`, "export function externalThing2() { return 20; }");
             host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
+        }
 
+        function writeExternalModuleTakingPreference(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
             logs.push("Write .ts file that takes preference over resolved .d.ts file");
             host.writeFile(`${tscWatch.projectRoot}/src/externalThing.ts`, "export function externalThing1() { return 10; }");
             host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
             host.runQueuedTimeoutCallbacks(); // Actual Update
             appendProjectFileText(project, logs);
+        }
+
+        function deleteExternalModuleTakingPreference(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
+            logs.push("Delete .ts file that takes preference over resolved .d.ts file");
+            host.deleteFile(`${tscWatch.projectRoot}/src/externalThing.ts`);
+            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
+            host.runQueuedTimeoutCallbacks(); // Actual Update
+            appendProjectFileText(project, logs);
+        }
+
+        function installNewType(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
+            logs.push("Install another type picked up by program");
+            host.ensureFileOrFolder({ path: `${tscWatch.projectRoot}/node_modules/@types/someType2/index.d.ts`, content: "export function someType2(): number;" });
+            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
+            host.runQueuedTimeoutCallbacks(); // Actual Update
+            appendProjectFileText(project, logs);
+        }
+
+        function deleteExistingType(host: TestServerHost, project: server.ConfiguredProject, logs: string[]) {
+            logs.push("Delete existing type picked up by program");
+            host.deleteFolder(`${tscWatch.projectRoot}/node_modules/@types/someType`, /*recursive*/ true);
+            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
+            host.runQueuedTimeoutCallbacks(); // Actual Update
+            appendProjectFileText(project, logs);
+        }
+
+        it("uses saved resolution for program", () => {
+            const result = setupHostWithSavedResolutions();
+            const { project, session, logs } = setup(result);
+            const { host, main, globalMain } = result;
+            appendProjectFileText(project, logs);
+
+            modifyGlobalMain(session, project, logs, globalMain);
+            addNewGlobalFile(host, session, project, logs, globalMain);
+            writeFileNotResolvedByReferencedPath(host, project, logs);
+            modifyMain(session, project, logs, main);
+            addNewFile(host, session, project, logs, main);
+            writeFileNotResolved(host, project, logs);
+            deleteFileNotResolved(host, project, logs);
+            writeFileNotResolved(host, project, logs);
+            writeExternalModuleNotResolved(host, project, logs);
+            writeExternalModuleTakingPreference(host, project, logs);
+            deleteExternalModuleTakingPreference(host, project, logs);
+            installNewType(host, project, logs);
+            deleteExistingType(host, project, logs);
 
             baselineTsserverLogs("persistResolutions", "uses saved resolution for program", logs);
         });
@@ -239,112 +230,19 @@ namespace ts.projectSystem {
             const { host, main, globalMain } = result;
             appendProjectFileText(project, logs);
 
-            logs.push(`Modify global file::`);
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: globalMain.path,
-                    line: 4,
-                    offset: 1,
-                    endLine: 4,
-                    endOffset: 1,
-                    insertString: `globalSomething();
-`
-                }
-            });
-            project.updateGraph();
-            appendProjectFileText(project, logs);
-
-            logs.push(`Add new globalFile and update globalMain file::`);
-            host.writeFile(`${tscWatch.projectRoot}/src/globalNewFile.ts`, "function globalFoo() { return 20; }");
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: globalMain.path,
-                    line: 1,
-                    offset: 1,
-                    endLine: 1,
-                    endOffset: 1,
-                    insertString: `/// <reference path="./globalNewFile.ts"/>
-`,
-                }
-            });
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: globalMain.path,
-                    line: 6,
-                    offset: 1,
-                    endLine: 6,
-                    endOffset: 1,
-                    insertString: `globalFoo();
-`
-                }
-            });
-            host.runQueuedTimeoutCallbacks();
-            appendProjectFileText(project, logs);
-
-            logs.push("Write file that could not be resolved by referenced path::");
-            host.writeFile(`${tscWatch.projectRoot}/src/globalFileNotFound.ts`, "function globalSomething2() { return 20; }");
-            host.runQueuedTimeoutCallbacks();
-            appendProjectFileText(project, logs);
-
-            logs.push(`Modify main file::`);
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: main.path,
-                    line: 4,
-                    offset: 1,
-                    endLine: 4,
-                    endOffset: 1,
-                    insertString: `something();
-`
-                }
-            });
-            project.updateGraph();
-            appendProjectFileText(project, logs);
-
-            logs.push(`Add new module and update main file::`);
-            host.writeFile(`${tscWatch.projectRoot}/src/newFile.ts`, "export function foo() { return 20; }");
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: main.path,
-                    line: 1,
-                    offset: 1,
-                    endLine: 1,
-                    endOffset: 1,
-                    insertString: `import { foo } from "./newFile";
-`,
-                }
-            });
-            host.runQueuedTimeoutCallbacks();
-            appendProjectFileText(project, logs);
-
-            logs.push("Write file that could not be resolved");
-            host.writeFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`, "export function something2() { return 20; }");
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
-
-            logs.push("Delete file that could not be resolved");
-            host.deleteFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`);
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
-
-            logs.push("Create external module file that could not be resolved");
-            host.writeFile(`${tscWatch.projectRoot}/src/externalThingNotPresent.ts`, "export function externalThing2() { return 20; }");
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
-
-            logs.push("Write .ts file that takes preference over resolved .d.ts file");
-            host.writeFile(`${tscWatch.projectRoot}/src/externalThing.ts`, "export function externalThing1() { return 10; }");
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
+            modifyGlobalMain(session, project, logs, globalMain);
+            addNewGlobalFile(host, session, project, logs, globalMain);
+            writeFileNotResolvedByReferencedPath(host, project, logs);
+            modifyMain(session, project, logs, main);
+            addNewFile(host, session, project, logs, main);
+            writeFileNotResolved(host, project, logs);
+            deleteFileNotResolved(host, project, logs);
+            writeFileNotResolved(host, project, logs);
+            writeExternalModuleNotResolved(host, project, logs);
+            writeExternalModuleTakingPreference(host, project, logs);
+            deleteExternalModuleTakingPreference(host, project, logs);
+            installNewType(host, project, logs);
+            deleteExistingType(host, project, logs);
 
             baselineTsserverLogs("persistResolutions", "creates new resolutions for program if tsbuildinfo is not present", logs);
         });
@@ -355,112 +253,19 @@ namespace ts.projectSystem {
             const { host, main, globalMain } = result;
             appendProjectFileText(project, logs);
 
-            logs.push(`Modify global file::`);
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: globalMain.path,
-                    line: 4,
-                    offset: 1,
-                    endLine: 4,
-                    endOffset: 1,
-                    insertString: `globalSomething();
-`
-                }
-            });
-            project.updateGraph();
-            appendProjectFileText(project, logs);
-
-            logs.push(`Add new globalFile and update globalMain file::`);
-            host.writeFile(`${tscWatch.projectRoot}/src/globalNewFile.ts`, "function globalFoo() { return 20; }");
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: globalMain.path,
-                    line: 1,
-                    offset: 1,
-                    endLine: 1,
-                    endOffset: 1,
-                    insertString: `/// <reference path="./globalNewFile.ts"/>
-`,
-                }
-            });
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: globalMain.path,
-                    line: 6,
-                    offset: 1,
-                    endLine: 6,
-                    endOffset: 1,
-                    insertString: `globalFoo();
-`
-                }
-            });
-            host.runQueuedTimeoutCallbacks();
-            appendProjectFileText(project, logs);
-
-            logs.push("Write file that could not be resolved by referenced path::");
-            host.writeFile(`${tscWatch.projectRoot}/src/globalFileNotFound.ts`, "function globalSomething2() { return 20; }");
-            host.runQueuedTimeoutCallbacks();
-            appendProjectFileText(project, logs);
-
-            logs.push(`Modify main file::`);
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: main.path,
-                    line: 4,
-                    offset: 1,
-                    endLine: 4,
-                    endOffset: 1,
-                    insertString: `something();
-`
-                }
-            });
-            project.updateGraph();
-            appendProjectFileText(project, logs);
-
-            logs.push(`Add new module and update main file::`);
-            host.writeFile(`${tscWatch.projectRoot}/src/newFile.ts`, "export function foo() { return 20; }");
-            session.executeCommandSeq<protocol.ChangeRequest>({
-                command: protocol.CommandTypes.Change,
-                arguments: {
-                    file: main.path,
-                    line: 1,
-                    offset: 1,
-                    endLine: 1,
-                    endOffset: 1,
-                    insertString: `import { foo } from "./newFile";
-`,
-                }
-            });
-            host.runQueuedTimeoutCallbacks();
-            appendProjectFileText(project, logs);
-
-            logs.push("Write file that could not be resolved");
-            host.writeFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`, "export function something2() { return 20; }");
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
-
-            logs.push("Delete file that could not be resolved");
-            host.deleteFile(`${tscWatch.projectRoot}/src/fileNotFound.ts`);
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
-
-            logs.push("Create external module file that could not be resolved");
-            host.writeFile(`${tscWatch.projectRoot}/src/externalThingNotPresent.ts`, "export function externalThing2() { return 20; }");
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
-
-            logs.push("Write .ts file that takes preference over resolved .d.ts file");
-            host.writeFile(`${tscWatch.projectRoot}/src/externalThing.ts`, "export function externalThing1() { return 10; }");
-            host.runQueuedTimeoutCallbacks(); // Invalidate resolutions
-            host.runQueuedTimeoutCallbacks(); // Actual Update
-            appendProjectFileText(project, logs);
+            modifyGlobalMain(session, project, logs, globalMain);
+            addNewGlobalFile(host, session, project, logs, globalMain);
+            writeFileNotResolvedByReferencedPath(host, project, logs);
+            modifyMain(session, project, logs, main);
+            addNewFile(host, session, project, logs, main);
+            writeFileNotResolved(host, project, logs);
+            deleteFileNotResolved(host, project, logs);
+            writeFileNotResolved(host, project, logs);
+            writeExternalModuleNotResolved(host, project, logs);
+            writeExternalModuleTakingPreference(host, project, logs);
+            deleteExternalModuleTakingPreference(host, project, logs);
+            installNewType(host, project, logs);
+            deleteExistingType(host, project, logs);
 
             baselineTsserverLogs("persistResolutions", "creates new resolutions for program if tsbuildinfo is present but program is not persisted", logs);
         });
