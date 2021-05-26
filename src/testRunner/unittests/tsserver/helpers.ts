@@ -104,6 +104,17 @@ namespace ts.projectSystem {
         return { logger, logs, hasErrorMsg };
     }
 
+    export function appendProjectFileText(project: server.Project, logs: string[]) {
+        logs.push("");
+        logs.push(`Project: ${project.getProjectName()}`);
+        project.getCurrentProgram()?.getSourceFiles().forEach(f => {
+            logs.push(JSON.stringify({ fileName: f.fileName, version: f.version }));
+            logs.push(f.text);
+            logs.push("");
+        });
+        logs.push("");
+    }
+
     export function baselineTsserverLogs(scenario: string, subScenario: string, baseline: string[]) {
         Harness.Baseline.runBaseline(`tsserver/${scenario}/${subScenario.split(" ").join("-")}.js`, baseline.join("\r\n"));
     }

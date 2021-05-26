@@ -1,4 +1,53 @@
 namespace ts.projectSystem {
+    interface SetupHostOutput {
+        host: TestServerHost;
+        openFiles: readonly File[];
+        config: File;
+    }
+
+    function setupHostWithSavedResolutions<T extends SetupHostOutput>(setupHost: () => T): T {
+        const result = setupHost();
+        const exit = result.host.exit;
+        result.host.exit = noop;
+        fakes.withTemporaryPatchingForBuildinfoReadWrite(result.host, sys => executeCommandLine(sys, noop, ["--b", result.config.path]));
+        result.host.exit = exit;
+        result.host.clearOutput();
+        return result;
+    }
+
+    function setupHostWithClearedResolutions<T extends SetupHostOutput>(setupHost: () => T): T {
+        const result = setupHost();
+        const exit = result.host.exit;
+        result.host.exit = noop;
+        fakes.withTemporaryPatchingForBuildinfoReadWrite(result.host, sys => {
+            executeCommandLine(sys, noop, ["--b", result.config.path]);
+            executeCommandLine(sys, noop, ["--b", result.config.path, "--cleanPersistedProgram"]);
+        });
+        result.host.exit = exit;
+        result.host.clearOutput();
+        return result;
+    }
+
+    function setup<T extends SetupHostOutput>({ host, openFiles, config }: T) {
+        const { logger, logs } = createLoggerWithInMemoryLogs();
+        fakes.patchHostForBuildInfoReadWrite(host);
+        const session = createSession(host, { logger });
+        openFilesForSession(openFiles, session);
+        const project = session.getProjectService().configuredProjects.get(config.path)!;
+        return { session, project, logs };
+    }
+
+    function persistResolutions(file: File) {
+        const content = JSON.parse(file.content);
+        content.compilerOptions = {
+            ...content.compilerOptions || {},
+            persistResolutions: true,
+            traceResolution: true,
+        };
+        file.content = JSON.stringify(content, /*replacer*/ undefined, 4);
+        return file;
+    }
+
     describe("unittests:: tsserver:: persistResolutions", () => {
         function setupHost() {
             const { main, anotherFileReusingResolution, filePresent, fileWithRef, types, globalMain, globalAnotherFileWithSameReferenes, globalFilePresent, externalThing, someType, config } = tscWatch.PersistentResolutionsTests.getFiles();
@@ -6,50 +55,7 @@ namespace ts.projectSystem {
                 [main, anotherFileReusingResolution, filePresent, fileWithRef, types, globalMain, globalAnotherFileWithSameReferenes, globalFilePresent, externalThing, someType, config, libFile],
                 { currentDirectory: tscWatch.projectRoot, useCaseSensitiveFileNames: true }
             );
-            return { host, main, globalMain, config };
-        }
-
-        function setupHostWithSavedResolutions() {
-            const result = setupHost();
-            const exit = result.host.exit;
-            result.host.exit = noop;
-            fakes.withTemporaryPatchingForBuildinfoReadWrite(result.host, sys => executeCommandLine(sys, noop, ["--p", "."]));
-            result.host.exit = exit;
-            result.host.clearOutput();
-            return result;
-        }
-
-        function setupHostWithClearedResolutions() {
-            const result = setupHost();
-            const exit = result.host.exit;
-            result.host.exit = noop;
-            fakes.withTemporaryPatchingForBuildinfoReadWrite(result.host, sys => {
-                executeCommandLine(sys, noop, ["--p", "."]);
-                executeCommandLine(sys, noop, ["--p", ".", "--cleanPersistedProgram"]);
-            });
-            result.host.exit = exit;
-            result.host.clearOutput();
-            return result;
-        }
-
-        function setup({ host, main, globalMain, config }: ReturnType<typeof setupHost>) {
-            const { logger, logs } = createLoggerWithInMemoryLogs();
-            fakes.patchHostForBuildInfoReadWrite(host);
-            const session = createSession(host, { logger });
-            openFilesForSession([main, globalMain], session);
-            const project = session.getProjectService().configuredProjects.get(config.path)!;
-            return { session, project, logs };
-        }
-
-        function appendProjectFileText(project: server.Project, logs: string[]) {
-            logs.push("");
-            logs.push(`Project: ${project.getProjectName()}`);
-            project.getCurrentProgram()?.getSourceFiles().forEach(f => {
-                logs.push(JSON.stringify({ fileName: f.fileName, version: f.version }));
-                logs.push(f.text);
-                logs.push("");
-            });
-            logs.push("");
+            return { host, main, globalMain, config, openFiles: [main, globalMain] };
         }
 
         function modifyGlobalMain(session: TestSession, project: server.ConfiguredProject, logs: string[], globalMain: File) {
@@ -202,7 +208,7 @@ namespace ts.projectSystem {
         }
 
         it("uses saved resolution for program", () => {
-            const result = setupHostWithSavedResolutions();
+            const result = setupHostWithSavedResolutions(setupHost);
             const { project, session, logs } = setup(result);
             const { host, main, globalMain } = result;
             appendProjectFileText(project, logs);
@@ -248,7 +254,7 @@ namespace ts.projectSystem {
         });
 
         it("creates new resolutions for program if tsbuildinfo is present but program is not persisted", () => {
-            const result = setupHostWithClearedResolutions();
+            const result = setupHostWithClearedResolutions(setupHost);
             const { project, session, logs } = setup(result);
             const { host, main, globalMain } = result;
             appendProjectFileText(project, logs);
@@ -269,5 +275,50 @@ namespace ts.projectSystem {
 
             baselineTsserverLogs("persistResolutions", "creates new resolutions for program if tsbuildinfo is present but program is not persisted", logs);
         });
+    });
+
+    describe("unittests:: tsserver:: persistResolutions on sample project", () => {
+        function setupHost() {
+            const coreConfig = persistResolutions(TestFSWithWatch.getTsBuildProjectFile("sample1", "core/tsconfig.json"));
+            const coreIndex = TestFSWithWatch.getTsBuildProjectFile("sample1", "core/index.ts");
+            const coreAnotherModule = TestFSWithWatch.getTsBuildProjectFile("sample1", "core/anotherModule.ts");
+            const coreSomeDecl = TestFSWithWatch.getTsBuildProjectFile("sample1", "core/some_decl.d.ts");
+            const logicConfig = persistResolutions(TestFSWithWatch.getTsBuildProjectFile("sample1", "logic/tsconfig.json"));
+            const logicIndex = TestFSWithWatch.getTsBuildProjectFile("sample1", "logic/index.ts");
+            const testsConfig = persistResolutions(TestFSWithWatch.getTsBuildProjectFile("sample1", "tests/tsconfig.json"));
+            const testsIndex = TestFSWithWatch.getTsBuildProjectFile("sample1", "tests/index.ts");
+            const host = createServerHost([libFile, coreConfig, coreIndex, coreAnotherModule, coreSomeDecl, logicConfig, logicIndex, testsConfig, testsIndex]);
+            return { host, config: testsConfig, openFiles: [testsIndex] };
+        }
+
+        it("uses saved resolution for program", () => {
+            const result = setupHostWithSavedResolutions(setupHost);
+            const { project, logs } = setup(result);
+            // const { host } = result;
+            appendProjectFileText(project, logs);
+            baselineTsserverLogs("persistResolutions", "uses saved resolution for program with sample project", logs);
+        });
+
+        it("creates new resolutions for program if tsbuildinfo is not present", () => {
+            const result = setupHost();
+            const { project, logs } = setup(result);
+            // const { host, main, globalMain } = result;
+            appendProjectFileText(project, logs);
+
+            baselineTsserverLogs("persistResolutions", "creates new resolutions for program if tsbuildinfo is not present with sample project", logs);
+        });
+
+        it("creates new resolutions for program if tsbuildinfo is present but program is not persisted", () => {
+            const result = setupHostWithClearedResolutions(setupHost);
+            const { project, logs } = setup(result);
+            // const { host, main, globalMain } = result;
+            appendProjectFileText(project, logs);
+
+            baselineTsserverLogs("persistResolutions", "creates new resolutions for program if tsbuildinfo is present but program is not persisted with sample project", logs);
+        });
+    });
+
+    describe("unittests:: tsserver:: persistResolutions on project where d.ts file contains fewer modules than original file", () => {
+        // TODO:
     });
 }
